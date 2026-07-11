@@ -26,12 +26,14 @@ function Board({
   playerXName,
   playerOName,
   isReadOnly,
+  onSound,
 }) {
   function handleClick(i) {
     if (isReadOnly || squares[i] || calculateWinner(squares)) {
       return;
     }
 
+    onSound();
     const nextSquares = squares.slice();
     nextSquares[i] = xIsNext ? "X" : "O";
 
@@ -77,11 +79,34 @@ function Board({
   );
 }
 
+function WinModal({ winnerName, winnerSymbol, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-confetti">🎉</div>
+        <h2 className="modal-title">Pemenangnya adalah</h2>
+        <div className={`modal-winner-badge ${winnerSymbol === 'X' ? 'badge-x' : 'badge-o'}`}>
+          {winnerName} <span>({winnerSymbol})</span>
+        </div>
+        <img
+          src="/images/042026c57dc3f0dedd7e1154fec2bbc5.jpg"
+          alt="Kerja Bagus!"
+          className="modal-image"
+        />
+        <button className="modal-btn glow-button" onClick={onClose}>
+          Main Lagi 🚀
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Game() {
   const [history, setHistory] = useState([Array(9).fill(null)]);
   const [currentMove, setCurrentMove] = useState(0);
   const [playerXName, setPlayerXName] = useState("Pemain X");
   const [playerOName, setPlayerOName] = useState("Pemain O");
+  const [showModal, setShowModal] = useState(false);
   const xIsNext = currentMove % 2 === 0;
   const currentSquares = history[currentMove];
   const winnerInfo = calculateWinner(currentSquares);
@@ -90,6 +115,41 @@ export default function Game() {
   const gameFinished = Boolean(winner) || isDraw;
   const isReadOnly = currentMove !== history.length - 1;
   const historyScrollRef = useRef(null);
+  const clickSoundRef = useRef(null);
+  const victorySoundRef = useRef(null);
+
+  // Pre-load audio ketika komponen pertama kali mount
+  useEffect(() => {
+    clickSoundRef.current = new Audio("/sounds/faaah.mp3");
+    clickSoundRef.current.volume = 0.7;
+    victorySoundRef.current = new Audio("/sounds/victory.mp3");
+    victorySoundRef.current.volume = 0.8;
+    return () => {
+      clickSoundRef.current = null;
+      victorySoundRef.current = null;
+    };
+  }, []);
+
+  function playClickSound() {
+    if (clickSoundRef.current) {
+      clickSoundRef.current.currentTime = 0;
+      clickSoundRef.current.play().catch(() => {});
+    }
+  }
+
+  // Putar suara victory dan tampilkan modal saat ada pemenang
+  const prevWinnerRef = useRef(null);
+  useEffect(() => {
+    if (winner && winner !== prevWinnerRef.current) {
+      if (victorySoundRef.current) {
+        victorySoundRef.current.currentTime = 0;
+        victorySoundRef.current.play().catch(() => {});
+      }
+      // Tunda modal sedikit agar animasi kemenangan di papan terlihat dulu
+      setTimeout(() => setShowModal(true), 600);
+    }
+    prevWinnerRef.current = winner;
+  }, [winner]);
 
   useEffect(() => {
     if (historyScrollRef.current) {
@@ -113,6 +173,7 @@ export default function Game() {
   function restartGame() {
     setHistory([Array(9).fill(null)]);
     setCurrentMove(0);
+    setShowModal(false);
   }
 
   const moves = history.map((squares, move) => {
@@ -141,6 +202,13 @@ export default function Game() {
 
   return (
     <div className="game-wrapper">
+      {showModal && winner && (
+        <WinModal
+          winnerName={winner === 'X' ? playerXName : playerOName}
+          winnerSymbol={winner}
+          onClose={restartGame}
+        />
+      )}
       {/* Background — memenuhi seluruh layar, di belakang semua konten */}
       <SideRays
         className="side-rays-bg"
@@ -208,6 +276,7 @@ export default function Game() {
                 playerXName={playerXName}
                 playerOName={playerOName}
                 isReadOnly={isReadOnly}
+                onSound={playClickSound}
               />
             </div>
 
