@@ -788,6 +788,7 @@ body {
   border-radius: 999px;
   color: var(--text-primary);
   font-size: 0.95rem;
+  margin-bottom: 8px;
 }
 
 .status-pill {
