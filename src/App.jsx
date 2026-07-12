@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import SideRays from "./components/SideRays";
 
-function Square({ value, onSquareClick, disabled, isWinning }) {
+function Square({ value, onSquareClick, disabled, isWinning, position }) {
   let className = "square";
   if (value === "X") className += " square-x";
   if (value === "O") className += " square-o";
   if (isWinning) className += " square-winner";
+
+  const label = value
+    ? `Kotak ${position}, berisi ${value}${isWinning ? ", bagian dari garis kemenangan" : ""}`
+    : `Kotak ${position}, kosong`;
 
   return (
     <button
@@ -13,8 +17,9 @@ function Square({ value, onSquareClick, disabled, isWinning }) {
       className={className}
       onClick={onSquareClick}
       disabled={disabled}
+      aria-label={label}
     >
-      <span className="square-inner">{value}</span>
+      <span className="square-inner" aria-hidden="true">{value}</span>
     </button>
   );
 }
@@ -72,6 +77,7 @@ function Board({
             onSquareClick={() => handleClick(i)}
             disabled={isReadOnly}
             isWinning={winningLine.includes(i)}
+            position={i + 1}
           />
         ))}
       </div>
@@ -133,7 +139,7 @@ export default function Game() {
   function playClickSound() {
     if (clickSoundRef.current) {
       clickSoundRef.current.currentTime = 0;
-      clickSoundRef.current.play().catch(() => {});
+      clickSoundRef.current.play().catch(() => { });
     }
   }
 
@@ -143,7 +149,7 @@ export default function Game() {
     if (winner && winner !== prevWinnerRef.current) {
       if (victorySoundRef.current) {
         victorySoundRef.current.currentTime = 0;
-        victorySoundRef.current.play().catch(() => {});
+        victorySoundRef.current.play().catch(() => { });
       }
       // Tunda modal sedikit agar animasi kemenangan di papan terlihat dulu
       setTimeout(() => setShowModal(true), 600);
@@ -231,7 +237,7 @@ export default function Game() {
           <p className="game-subtitle">Menangkan Gamenya !</p>
         </header>
 
-        <div className="game-main">
+        <main className="game-main">
           {/* Scoreboard / Player Setup */}
           <div className="scoreboard">
             <div className={`score-card player-x-card ${(!winner && xIsNext && !isReadOnly && !isDraw) ? 'active' : ''} ${winner === 'X' ? 'winner-card' : ''}`}>
@@ -282,7 +288,7 @@ export default function Game() {
 
             <div className="sidebar-section">
               <div className="glass-panel info-panel">
-                <h3 className="panel-title">Riwayat Langkah</h3>
+                <h2 className="panel-title">Riwayat Langkah</h2>
                 <div className="history-scroll" ref={historyScrollRef}>
                   <ol className="history-timeline">{moves}</ol>
                 </div>
@@ -298,7 +304,7 @@ export default function Game() {
               </div>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );
