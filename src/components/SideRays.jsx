@@ -16,6 +16,34 @@ const originToOffset = origin => {
   }
 };
 
+// Batasi dpr: mobile cukup 1x (retina di sini cuma buang-buang piksel untuk
+// diproses), desktop maksimal 1.5x. Nilai lama (2x) nyaris 2x lipat beban
+// fragment shader dibanding ini untuk device yang sama.
+const getSafeDpr = () => {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const cap = isMobile ? 1 : 1.5;
+  return Math.min(window.devicePixelRatio || 1, cap);
+};
+
+// Deteksi software rendering (SwiftShader/llvmpipe/ANGLE software) — ini yang
+// terjadi di environment headless/CI tanpa akses GPU, dan bikin shader yang
+// harusnya jalan di GPU malah membebani CPU/main thread.
+const isSoftwareRenderer = gl => {
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    if (!ext) return false;
+    const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '';
+    return /swiftshader|llvmpipe|software|angle.*software/i.test(renderer);
+  } catch (e) {
+    return false;
+  }
+};
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const SideRays = ({
   speed = 2.5,
   rayColor1 = '#EAB308',
@@ -71,12 +99,30 @@ const SideRays = ({
     const initializeWebGL = async () => {
       if (!containerRef.current) return;
 
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Efek ini murni dekoratif — jangan biarkan ia berebut main thread
+      // dengan konten utama saat halaman baru dimuat. Tunggu sampai window
+      // 'load' selesai, lalu tunggu browser benar-benar idle (atau timeout
+      // singkat sebagai fallback di browser yang tidak dukung
+      // requestIdleCallback, misalnya Safari).
+      if (document.readyState !== 'complete') {
+        await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
+      }
+      await new Promise(resolve => {
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(resolve, { timeout: 1500 });
+        } else {
+          setTimeout(resolve, 200);
+        }
+      });
 
       if (!containerRef.current) return;
 
+      // Hormati preferensi pengguna yang meminta gerakan minimal — sekaligus
+      // hemat CPU/GPU untuk mereka.
+      const reducedMotion = prefersReducedMotion();
+
       const renderer = new Renderer({
-        dpr: Math.min(window.devicePixelRatio, 2),
+        dpr: getSafeDpr(),
         alpha: true
       });
       rendererRef.current = renderer;
@@ -84,6 +130,15 @@ const SideRays = ({
       const gl = renderer.gl;
       gl.canvas.style.width = '100%';
       gl.canvas.style.height = '100%';
+
+      // Kalau ternyata jatuh ke software rendering (tidak ada GPU asli —
+      // umum terjadi di environment headless/CI), shader per-piksel ini akan
+      // membebani CPU alih-alih GPU. Lebih baik tidak menampilkan efeknya
+      // sama sekali daripada mengunci main thread selama belasan detik.
+      if (isSoftwareRenderer(gl)) {
+        rendererRef.current = null;
+        return;
+      }
 
       while (containerRef.current.firstChild) {
         containerRef.current.removeChild(containerRef.current.firstChild);
@@ -179,7 +234,7 @@ void main() {
 
       const updateSize = () => {
         if (!containerRef.current || !renderer) return;
-        renderer.dpr = Math.min(window.devicePixelRatio, 2);
+        renderer.dpr = getSafeDpr();
         const { clientWidth: w, clientHeight: h } = containerRef.current;
         renderer.setSize(w, h);
         uniforms.iResolution.value = [w * renderer.dpr, h * renderer.dpr];
@@ -198,7 +253,13 @@ void main() {
 
       window.addEventListener('resize', updateSize);
       updateSize();
-      animationIdRef.current = requestAnimationFrame(loop);
+
+      if (reducedMotion) {
+        // Render sekali saja, tanpa loop animasi terus-menerus.
+        renderer.render({ scene: mesh });
+      } else {
+        animationIdRef.current = requestAnimationFrame(loop);
+      }
 
       cleanupFunctionRef.current = () => {
         if (animationIdRef.current) {
@@ -212,7 +273,7 @@ void main() {
             if (loseCtx) loseCtx.loseContext();
             const canvas = renderer.gl.canvas;
             if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-          } catch (e) {}
+          } catch (e) { }
         }
         rendererRef.current = null;
         uniformsRef.current = null;
