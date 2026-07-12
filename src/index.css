@@ -1295,4 +1295,9 @@ body {
   .move-button {
     font-size: 0.78rem;
   }
+
+  .room-code-pill {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+  }
 }
