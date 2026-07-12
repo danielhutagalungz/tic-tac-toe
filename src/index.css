@@ -22,13 +22,8 @@ body {
   background-color: var(--bg-dark);
   color: var(--text-primary);
   min-height: 100vh;
-  overflow: hidden;
-}
-
-@media (max-width: 768px) {
-  body {
-    overflow-y: auto;
-  }
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root {
@@ -1295,7 +1290,7 @@ body {
   .move-button {
     font-size: 0.78rem;
   }
-
+  
   .room-code-pill {
     font-size: 0.85rem;
     padding: 6px 10px;
