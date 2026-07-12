@@ -7,8 +7,50 @@ import {
   updateDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { Board, WinModal, calculateWinner } from "./Game";
+import { Board, calculateWinner } from "./Game";
 import SideRays from "./components/SideRays";
+
+function ResultModal({ result, winnerName, winnerSymbol, onClose }) {
+  let emoji = "🎉";
+  let title = "Kamu Menang!";
+  let imageSrc = "/images/042026c57dc3f0dedd7e1154fec2bbc5.jpg";
+  let imageAlt = "Kerja Bagus!";
+
+  if (result === "draw") {
+    emoji = "🤝";
+    title = "Permainan Seri!";
+    imageSrc = "/images/6dbc1c77003c177d25c72f50abbdf646.jpg";
+    imageAlt = "Permainan Seri";
+  } else if (result === "lose") {
+    emoji = "😢";
+    title = "Kamu Kalah";
+    imageSrc = "/images/cd4af7e68627a80c8d4156c9595d2978.jpg";
+    imageAlt = "Kamu Kalah";
+  } else if (result === "spectator") {
+    emoji = "🎉";
+    title = "Permainan Selesai";
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-confetti">{emoji}</div>
+        <h2 className="modal-title">{title}</h2>
+        {result !== "draw" && (
+          <div
+            className={`modal-winner-badge ${winnerSymbol === "X" ? "badge-x" : "badge-o"}`}
+          >
+            {winnerName} <span>({winnerSymbol})</span>
+          </div>
+        )}
+        <img src={imageSrc} alt={imageAlt} className="modal-image" />
+        <button className="modal-btn glow-button" onClick={onClose}>
+          Main Lagi
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function getClientId() {
   let id = localStorage.getItem("ttt-client-id");
@@ -27,27 +69,43 @@ function generateRoomCode() {
   return code;
 }
 
-export default function OnlineGame({ onBack = () => {} }) {
-  const [roomCode, setRoomCode] = useState(
-    () => new URLSearchParams(window.location.search).get("room") || "",
-  );
+export default function OnlineGame({
+  onBack = () => {},
+  roomCode,
+  onRoomChange,
+}) {
   const [joinInput, setJoinInput] = useState("");
   const [game, setGame] = useState(null);
   const [mySymbol, setMySymbol] = useState(null);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [viewMove, setViewMove] = useState(0);
+  const isFollowingLatestRef = useRef(true);
   const clientId = useRef(getClientId());
-  const prevWinnerRef = useRef(null);
+  const prevGameOverRef = useRef(false);
   const clickSoundRef = useRef(null);
   const victorySoundRef = useRef(null);
+  const drawSoundRef = useRef(null);
+  const loseSoundRef = useRef(null);
 
   useEffect(() => {
     clickSoundRef.current = new Audio("/sounds/faaah.mp3");
     victorySoundRef.current = new Audio("/sounds/victory.mp3");
+    drawSoundRef.current = new Audio("/sounds/wrong-answer-sound-effect.mp3");
+    loseSoundRef.current = new Audio("/sounds/sadtrombone.swf.mp3");
   }, []);
 
   useEffect(() => {
-    if (!roomCode) return;
+    if (!roomCode) {
+      setGame(null);
+      setMySymbol(null);
+      setError("");
+      setShowModal(false);
+      setViewMove(0);
+      isFollowingLatestRef.current = true;
+      prevGameOverRef.current = false;
+      return;
+    }
     const unsub = onSnapshot(
       doc(db, "games", roomCode),
       (snap) => {
@@ -57,11 +115,23 @@ export default function OnlineGame({ onBack = () => {} }) {
           return;
         }
         const data = snap.data();
-        setGame(data);
+        // Dukung dokumen lama yang belum punya field `history`.
+        const history = data.history || [{ squares: data.squares }];
+        setGame({ ...data, history });
         setError("");
         if (data.players?.X === clientId.current) setMySymbol("X");
         else if (data.players?.O === clientId.current) setMySymbol("O");
         else setMySymbol("spectator");
+
+        // Kalau baru saja main lagi (restart), atau kita memang lagi
+        // "mengikuti" langkah terbaru, ikut lompat ke langkah terbaru.
+        setViewMove((prev) => {
+          if (history.length === 1) return 0;
+          if (isFollowingLatestRef.current || prev >= history.length) {
+            return history.length - 1;
+          }
+          return prev;
+        });
       },
       () => setError("Gagal terhubung ke room."),
     );
@@ -72,18 +142,28 @@ export default function OnlineGame({ onBack = () => {} }) {
     if (!game) return;
     const winnerInfo = calculateWinner(game.squares);
     const winner = winnerInfo ? winnerInfo.winner : null;
-    if (winner && winner !== prevWinnerRef.current) {
-      victorySoundRef.current?.play().catch(() => {});
+    const isDraw = !winner && game.squares.every(Boolean);
+    const gameOver = Boolean(winner) || isDraw;
+
+    if (gameOver && !prevGameOverRef.current) {
+      if (winner && winner === mySymbol) {
+        victorySoundRef.current?.play().catch(() => {});
+      } else if (isDraw) {
+        drawSoundRef.current?.play().catch(() => {});
+      } else if (winner && mySymbol !== "spectator") {
+        loseSoundRef.current?.play().catch(() => {});
+      }
       setTimeout(() => setShowModal(true), 600);
     }
-    prevWinnerRef.current = winner;
-  }, [game]);
+    prevGameOverRef.current = gameOver;
+  }, [game, mySymbol]);
 
   async function createRoom() {
     const code = generateRoomCode();
     await runTransaction(db, async (tx) => {
       tx.set(doc(db, "games", code), {
         squares: Array(9).fill(null),
+        history: [{ squares: Array(9).fill(null) }],
         xIsNext: true,
         playerXName: "Pemain X",
         playerOName: "Pemain O",
@@ -91,8 +171,7 @@ export default function OnlineGame({ onBack = () => {} }) {
         createdAt: serverTimestamp(),
       });
     });
-    window.history.pushState({}, "", `?room=${code}`);
-    setRoomCode(code);
+    onRoomChange(code);
   }
 
   async function joinRoom(code) {
@@ -109,16 +188,21 @@ export default function OnlineGame({ onBack = () => {} }) {
         if (!players.X) tx.update(ref, { "players.X": clientId.current });
         else if (!players.O) tx.update(ref, { "players.O": clientId.current });
       });
-      window.history.pushState({}, "", `?room=${upperCode}`);
-      setRoomCode(upperCode);
+      onRoomChange(upperCode);
     } catch (e) {
       setError(e.message || "Gagal join room.");
     }
   }
 
   async function handlePlay(nextSquares) {
+    const nextHistory = [
+      ...(game.history || [{ squares: game.squares }]),
+      { squares: nextSquares },
+    ];
+    isFollowingLatestRef.current = true;
     await updateDoc(doc(db, "games", roomCode), {
       squares: nextSquares,
+      history: nextHistory,
       xIsNext: !game.xIsNext,
     });
     if (clickSoundRef.current) {
@@ -133,18 +217,24 @@ export default function OnlineGame({ onBack = () => {} }) {
   }
 
   async function restartGame() {
+    isFollowingLatestRef.current = true;
+    prevGameOverRef.current = false;
     await updateDoc(doc(db, "games", roomCode), {
       squares: Array(9).fill(null),
+      history: [{ squares: Array(9).fill(null) }],
       xIsNext: true,
     });
     setShowModal(false);
   }
 
-  function leaveRoom() {
-    window.history.pushState({}, "", window.location.pathname);
-    setRoomCode("");
-    setGame(null);
-    setMySymbol(null);
+  function jumpTo(move) {
+    isFollowingLatestRef.current = move === game.history.length - 1;
+    setViewMove(move);
+  }
+
+  function backToLatest() {
+    isFollowingLatestRef.current = true;
+    setViewMove(game.history.length - 1);
   }
 
   function copyInviteLink() {
@@ -221,6 +311,11 @@ export default function OnlineGame({ onBack = () => {} }) {
 
   if (!game) return <p>{error || "Menghubungkan ke room..."}</p>;
 
+  const history = game.history || [{ squares: game.squares }];
+  const latestIndex = history.length - 1;
+  const viewingLatest = viewMove === latestIndex;
+  const displayedSquares = history[viewMove]?.squares || game.squares;
+
   const winnerInfo = calculateWinner(game.squares);
   const winner = winnerInfo ? winnerInfo.winner : null;
   const isDraw = !winner && game.squares.every(Boolean);
@@ -230,10 +325,37 @@ export default function OnlineGame({ onBack = () => {} }) {
     ((game.xIsNext && mySymbol === "X") || (!game.xIsNext && mySymbol === "O"));
   const gameFinished = Boolean(winner) || isDraw;
 
+  let result = null;
+  if (isDraw) result = "draw";
+  else if (winner && mySymbol === "spectator") result = "spectator";
+  else if (winner && winner === mySymbol) result = "win";
+  else if (winner) result = "lose";
+
+  const moves = history.map((_, move) => {
+    const description = move > 0 ? `Langkah #${move}` : "Game Dimulai";
+    const isCurrent = move === viewMove;
+    return (
+      <li
+        key={move}
+        className={`timeline-item ${isCurrent ? "active-item" : ""}`}
+      >
+        <button
+          className={`move-button ${isCurrent ? "active-move" : ""}`}
+          type="button"
+          onClick={() => jumpTo(move)}
+        >
+          <span className="dot"></span>
+          <span className="desc">{description}</span>
+        </button>
+      </li>
+    );
+  });
+
   return (
     <div className="game-wrapper">
-      {showModal && winner && (
-        <WinModal
+      {showModal && gameFinished && (
+        <ResultModal
+          result={result}
           winnerName={winner === "X" ? game.playerXName : game.playerOName}
           winnerSymbol={winner}
           onClose={restartGame}
@@ -332,13 +454,22 @@ export default function OnlineGame({ onBack = () => {} }) {
             <div className="board-section">
               <Board
                 xIsNext={game.xIsNext}
-                squares={game.squares}
+                squares={displayedSquares}
                 onPlay={handlePlay}
                 playerXName={game.playerXName}
                 playerOName={game.playerOName}
-                isReadOnly={!isMyTurn}
+                isReadOnly={!viewingLatest || !isMyTurn}
                 onSound={() => {}}
               />
+              {!viewingLatest && (
+                <button
+                  type="button"
+                  className="action-button glow-button back-to-live-button"
+                  onClick={backToLatest}
+                >
+                  ↺ Kembali ke Langkah Terbaru
+                </button>
+              )}
             </div>
 
             <div className="sidebar-section">
@@ -360,7 +491,7 @@ export default function OnlineGame({ onBack = () => {} }) {
                   <button
                     type="button"
                     className="action-button secondary"
-                    onClick={leaveRoom}
+                    onClick={onBack}
                   >
                     Keluar Room
                   </button>
@@ -375,6 +506,13 @@ export default function OnlineGame({ onBack = () => {} }) {
                     Main Lagi
                   </button>
                 )}
+              </div>
+
+              <div className="glass-panel info-panel">
+                <h2 className="panel-title">Riwayat Langkah</h2>
+                <div className="history-scroll">
+                  <ol className="history-timeline">{moves}</ol>
+                </div>
               </div>
             </div>
           </div>

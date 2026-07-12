@@ -1,20 +1,79 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Game from "./Game";
 import OnlineGame from "./OnlineGame";
 import SideRays from "./components/SideRays";
 
+// Membaca mode & roomCode dari URL saat ini — dipakai sebagai "sumber
+// kebenaran" tunggal, baik saat load pertama maupun saat tombol back/forward
+// browser ditekan.
+function readNavStateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const room = params.get("room");
+  const modeParam = params.get("mode");
+  if (room) return { mode: "online", roomCode: room.toUpperCase() };
+  if (modeParam === "local") return { mode: "local", roomCode: "" };
+  if (modeParam === "online") return { mode: "online", roomCode: "" };
+  return { mode: null, roomCode: "" };
+}
+
 export default function App() {
-  const [mode, setMode] = useState(() =>
-    new URLSearchParams(window.location.search).get("room") ? "online" : null,
-  );
+  const [{ mode, roomCode }, setNavState] = useState(readNavStateFromUrl);
+  // Melacak berapa banyak "langkah maju" yang sudah kita dorong sendiri ke
+  // history, supaya tombol "Kembali" tau apakah cukup panggil
+  // history.back() (biar browser back button & tombol kita konsisten) atau,
+  // kalau user datang langsung dari link undangan (tanpa history di app
+  // ini), langsung arahkan ke Beranda.
+  const pushDepthRef = useRef(0);
 
-  function goHome() {
-    window.history.pushState({}, "", window.location.pathname);
-    setMode(null);
-  }
+  useEffect(() => {
+    function handlePopState() {
+      if (pushDepthRef.current > 0) pushDepthRef.current -= 1;
+      setNavState(readNavStateFromUrl());
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
-  if (mode === "online") return <OnlineGame onBack={goHome} />;
-  if (mode === "local") return <Game onBack={goHome} />;
+  const navigate = useCallback((next, { replace = false } = {}) => {
+    const params = new URLSearchParams();
+    if (next.roomCode) params.set("room", next.roomCode);
+    else if (next.mode) params.set("mode", next.mode);
+    const query = params.toString();
+    const url = query
+      ? `${window.location.pathname}?${query}`
+      : window.location.pathname;
+
+    if (replace) {
+      window.history.replaceState({ app: true, ...next }, "", url);
+    } else {
+      window.history.pushState({ app: true, ...next }, "", url);
+      pushDepthRef.current += 1;
+    }
+    setNavState({ mode: next.mode, roomCode: next.roomCode || "" });
+  }, []);
+
+  // Dipakai oleh semua tombol "Kembali" / "Keluar Room": kalau ada history
+  // yang kita dorong sendiri, mundur satu langkah lewat browser (supaya
+  // tombol back browser & tombol di UI berperilaku sama persis). Kalau
+  // tidak ada (misalnya user baru buka lewat link undangan), langsung ganti
+  // ke Beranda tanpa menambah entry baru.
+  const goBack = useCallback(() => {
+    if (pushDepthRef.current > 0) {
+      window.history.back();
+    } else {
+      navigate({ mode: null, roomCode: "" }, { replace: true });
+    }
+  }, [navigate]);
+
+  if (mode === "online")
+    return (
+      <OnlineGame
+        onBack={goBack}
+        roomCode={roomCode}
+        onRoomChange={(code) => navigate({ mode: "online", roomCode: code })}
+      />
+    );
+  if (mode === "local") return <Game onBack={goBack} />;
 
   return (
     <div className="game-wrapper mode-screen">
@@ -50,14 +109,14 @@ export default function App() {
               <button
                 type="button"
                 className="mode-button glow-button"
-                onClick={() => setMode("local")}
+                onClick={() => navigate({ mode: "local", roomCode: "" })}
               >
                 Main Lokal
               </button>
               <button
                 type="button"
                 className="mode-button secondary glow-button"
-                onClick={() => setMode("online")}
+                onClick={() => navigate({ mode: "online", roomCode: "" })}
               >
                 Main Online
               </button>
