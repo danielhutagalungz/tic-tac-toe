@@ -100,7 +100,7 @@ function WinModal({ winnerName, winnerSymbol, onClose }) {
           className="modal-image"
         />
         <button className="modal-btn glow-button" onClick={onClose}>
-          Main Lagi 🚀
+          Main Lagi
         </button>
       </div>
     </div>
