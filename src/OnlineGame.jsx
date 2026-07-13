@@ -271,12 +271,6 @@ export default function OnlineGame({
         />
 
         <div className="game-container">
-          <div className="page-header game-page-header">
-            <button type="button" className="back-button" onClick={onBack}>
-              ← Kembali
-            </button>
-          </div>
-
           <header className="game-header">
             <h1 className="game-title">TIC TAC TOE</h1>
             <p className="game-subtitle">Main Online</p>
@@ -396,12 +390,6 @@ export default function OnlineGame({
       />
 
       <div className="game-container">
-        <div className="page-header game-page-header">
-          <button type="button" className="back-button" onClick={onBack}>
-            ← Kembali
-          </button>
-        </div>
-
         <header className="game-header">
           <h1 className="game-title">TIC TAC TOE</h1>
           <p className="game-subtitle">

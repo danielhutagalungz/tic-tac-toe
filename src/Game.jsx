@@ -39,13 +39,7 @@ function SymbolO() {
       fill="none"
       aria-hidden="true"
     >
-      <circle
-        cx="12"
-        cy="12"
-        r="7.5"
-        stroke="currentColor"
-        strokeWidth="3.5"
-      />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="3.5" />
     </svg>
   );
 }
@@ -124,7 +118,8 @@ function Board({
     status = `Giliran: ${currentPlayerName} (${xIsNext ? "X" : "O"})`;
   }
 
-  const hoverVariant = !isReadOnly && !winner && !isDraw ? (xIsNext ? "x" : "o") : null;
+  const hoverVariant =
+    !isReadOnly && !winner && !isDraw ? (xIsNext ? "x" : "o") : null;
 
   return (
     <div className="board-container">
@@ -305,12 +300,6 @@ export default function Game({ onBack = () => {} }) {
       />
 
       <div className="game-container">
-        <div className="page-header game-page-header">
-          <button type="button" className="back-button" onClick={onBack}>
-            ← Kembali
-          </button>
-        </div>
-
         <header className="game-header">
           <h1 className="game-title">TIC TAC TOE</h1>
           <p className="game-subtitle">Menangkan Gamenya !</p>
