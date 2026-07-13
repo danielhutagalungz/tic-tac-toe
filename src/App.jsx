@@ -80,8 +80,8 @@ export default function App() {
       <SideRays
         className="side-rays-bg"
         speed={1.4}
-        rayColor1="#00f2fe"
-        rayColor2="#ec4899"
+        rayColor1="#00f0ff"
+        rayColor2="#ff00e5"
         intensity={1.8}
         spread={2.6}
         origin="top-right"
@@ -108,14 +108,14 @@ export default function App() {
             <div className="mode-actions">
               <button
                 type="button"
-                className="mode-button glow-button"
+                className="mode-button btn-plain"
                 onClick={() => navigate({ mode: "local", roomCode: "" })}
               >
                 Main Lokal
               </button>
               <button
                 type="button"
-                className="mode-button secondary glow-button"
+                className="mode-button glow-button"
                 onClick={() => navigate({ mode: "online", roomCode: "" })}
               >
                 Main Online

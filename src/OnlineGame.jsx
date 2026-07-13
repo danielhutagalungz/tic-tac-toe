@@ -258,8 +258,8 @@ export default function OnlineGame({
         <SideRays
           className="side-rays-bg"
           speed={1.4}
-          rayColor1="#00f2fe"
-          rayColor2="#ec4899"
+          rayColor1="#00f0ff"
+          rayColor2="#ff00e5"
           intensity={1.8}
           spread={2.6}
           origin="top-right"
@@ -383,8 +383,8 @@ export default function OnlineGame({
       <SideRays
         className="side-rays-bg"
         speed={1.5}
-        rayColor1="#00f2fe"
-        rayColor2="#ec4899"
+        rayColor1="#00f0ff"
+        rayColor2="#ff00e5"
         intensity={1.8}
         spread={2.5}
         origin="top-right"
@@ -508,7 +508,7 @@ export default function OnlineGame({
                   </button>
                   <button
                     type="button"
-                    className="action-button secondary"
+                    className="action-button btn-ghost-secondary"
                     onClick={onBack}
                   >
                     Keluar Room

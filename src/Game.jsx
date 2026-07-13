@@ -1,11 +1,71 @@
 import { useState, useEffect, useRef } from "react";
 import SideRays from "./components/SideRays";
 
-function Square({ value, onSquareClick, disabled, isWinning, position }) {
+function SymbolX() {
+  return (
+    <svg
+      className="symbol symbol-x"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <line
+        x1="5"
+        y1="5"
+        x2="19"
+        y2="19"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+      />
+      <line
+        x1="19"
+        y1="5"
+        x2="5"
+        y2="19"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SymbolO() {
+  return (
+    <svg
+      className="symbol symbol-o"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="7.5"
+        stroke="currentColor"
+        strokeWidth="3.5"
+      />
+    </svg>
+  );
+}
+
+function Square({
+  value,
+  onSquareClick,
+  disabled,
+  isWinning,
+  position,
+  hoverVariant,
+}) {
   let className = "square";
-  if (value === "X") className += " square-x";
-  if (value === "O") className += " square-o";
+  if (value === "X") className += " square-x square-filled";
+  if (value === "O") className += " square-o square-filled";
   if (isWinning) className += " square-winner";
+  if (!value && !disabled && hoverVariant === "x")
+    className += " square-hover-x";
+  if (!value && !disabled && hoverVariant === "o")
+    className += " square-hover-o";
 
   const label = value
     ? `Kotak ${position}, berisi ${value}${isWinning ? ", bagian dari garis kemenangan" : ""}`
@@ -19,9 +79,8 @@ function Square({ value, onSquareClick, disabled, isWinning, position }) {
       disabled={disabled}
       aria-label={label}
     >
-      <span className="square-inner" aria-hidden="true">
-        {value}
-      </span>
+      {value === "X" && <SymbolX />}
+      {value === "O" && <SymbolO />}
     </button>
   );
 }
@@ -57,23 +116,27 @@ function Board({
     status = "Melihat langkah sebelumnya";
   } else if (winner) {
     const winnerName = winner === "X" ? playerXName : playerOName;
-    status = `Pemenang: ${winnerName} (${winner}) 🎉`;
+    status = `Pemenang: ${winnerName} (${winner})`;
   } else if (isDraw) {
-    status = "Permainan Seri! 🤝";
+    status = "Permainan Seri";
   } else {
     const currentPlayerName = xIsNext ? playerXName : playerOName;
     status = `Giliran: ${currentPlayerName} (${xIsNext ? "X" : "O"})`;
   }
 
+  const hoverVariant = !isReadOnly && !winner && !isDraw ? (xIsNext ? "x" : "o") : null;
+
   return (
     <div className="board-container">
       <div
-        className={`status-badge ${winner ? "status-winner" : isDraw ? "status-draw" : "status-normal"}`}
+        className={`status-badge ${winner ? `status-winner ${winner === "O" ? "status-winner-o" : ""}` : isDraw ? "status-draw" : "status-normal"}`}
       >
         {status}
       </div>
 
-      <div className="board">
+      <div
+        className={`board ${winner === "X" ? "board-pulse-x" : winner === "O" ? "board-pulse-o" : ""}`}
+      >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
           <Square
             key={i}
@@ -82,6 +145,7 @@ function Board({
             disabled={isReadOnly}
             isWinning={winningLine.includes(i)}
             position={i + 1}
+            hoverVariant={hoverVariant}
           />
         ))}
       </div>
@@ -228,8 +292,8 @@ export default function Game({ onBack = () => {} }) {
       <SideRays
         className="side-rays-bg"
         speed={1.5}
-        rayColor1="#00f2fe"
-        rayColor2="#ec4899"
+        rayColor1="#00f0ff"
+        rayColor2="#ff00e5"
         intensity={1.8}
         spread={2.5}
         origin="top-right"
