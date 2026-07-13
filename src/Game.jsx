@@ -315,6 +315,15 @@ export default function Game({ onBack = () => {} }) {
                 isReadOnly={isReadOnly}
                 onSound={playClickSound}
               />
+              {isReadOnly && (
+                <button
+                  type="button"
+                  className="action-button glow-button back-to-live-button"
+                  onClick={() => jumpTo(history.length - 1)}
+                >
+                  ↺ Kembali ke Langkah Terbaru
+                </button>
+              )}
             </div>
 
             <div className="sidebar-section">
