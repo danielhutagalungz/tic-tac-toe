@@ -40,7 +40,6 @@ body {
   justify-content: center;
   align-items: center;
   padding: 2vh 20px;
-  overflow: hidden;
 }
 
 /* Background canvas */
@@ -1057,7 +1056,7 @@ body {
   }
 
   .game-wrapper {
-    align-items: flex-start;
+    align-items: center;
     padding: 20px 16px 40px;
     min-height: 100dvh;
   }
@@ -1205,10 +1204,7 @@ body {
 
   .game-container {
     gap: 14px;
-    display: flex;
-    justify-content: center; /* center horizontal */
-    align-items: center; /* center vertical */
-    height: 75vh;
+    padding: 10px 16px 60px;
   }
 
   .game-title {
