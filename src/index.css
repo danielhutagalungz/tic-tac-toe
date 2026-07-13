@@ -1205,6 +1205,10 @@ body {
 
   .game-container {
     gap: 14px;
+    display: flex;
+    justify-content: center; /* center horizontal */
+    align-items: center; /* center vertical */
+    height: 75vh;
   }
 
   .game-title {
@@ -1290,7 +1294,7 @@ body {
   .move-button {
     font-size: 0.78rem;
   }
-  
+
   .room-code-pill {
     font-size: 0.85rem;
     padding: 6px 10px;
