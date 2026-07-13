@@ -10,7 +10,7 @@ import {
 import { Board, calculateWinner } from "./Game";
 import SideRays from "./components/SideRays";
 
-function ResultModal({ result, winnerName, winnerSymbol, onClose }) {
+function ResultModal({ result, displayName, displaySymbol, onClose }) {
   let emoji = "🎉";
   let title = "Kamu Menang!";
   let imageSrc = "/images/042026c57dc3f0dedd7e1154fec2bbc5.jpg";
@@ -38,9 +38,9 @@ function ResultModal({ result, winnerName, winnerSymbol, onClose }) {
         <h2 className="modal-title">{title}</h2>
         {result !== "draw" && (
           <div
-            className={`modal-winner-badge ${winnerSymbol === "X" ? "badge-x" : "badge-o"}`}
+            className={`modal-winner-badge ${displaySymbol === "X" ? "badge-x" : "badge-o"}`}
           >
-            {winnerName} <span>({winnerSymbol})</span>
+            {displayName} <span>({displaySymbol})</span>
           </div>
         )}
         <img src={imageSrc} alt={imageAlt} className="modal-image" />
@@ -219,10 +219,20 @@ export default function OnlineGame({
   async function restartGame() {
     isFollowingLatestRef.current = true;
     prevGameOverRef.current = false;
+    // Tukar posisi X <-> O setiap ronde baru, beserta nama pemainnya —
+    // supaya identitas orangnya ikut pindah simbol (bukan cuma simbolnya
+    // doang yang berubah sementara nama "nyangkut" di posisi lama).
+    const swappedPlayers = {
+      X: game.players?.O ?? null,
+      O: game.players?.X ?? null,
+    };
     await updateDoc(doc(db, "games", roomCode), {
       squares: Array(9).fill(null),
       history: [{ squares: Array(9).fill(null) }],
       xIsNext: true,
+      players: swappedPlayers,
+      playerXName: game.playerOName,
+      playerOName: game.playerXName,
     });
     setShowModal(false);
   }
@@ -356,8 +366,16 @@ export default function OnlineGame({
       {showModal && gameFinished && (
         <ResultModal
           result={result}
-          winnerName={winner === "X" ? game.playerXName : game.playerOName}
-          winnerSymbol={winner}
+          displayName={
+            result === "lose"
+              ? mySymbol === "X"
+                ? game.playerXName
+                : game.playerOName
+              : winner === "X"
+                ? game.playerXName
+                : game.playerOName
+          }
+          displaySymbol={result === "lose" ? mySymbol : winner}
           onClose={restartGame}
         />
       )}
