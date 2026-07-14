@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Game from "./Game";
 import OnlineGame from "./OnlineGame";
+import Leaderboard from "./Leaderboard";
 import SideRays from "./components/SideRays";
 
 // Membaca mode & roomCode dari URL saat ini — dipakai sebagai "sumber
@@ -13,6 +14,7 @@ function readNavStateFromUrl() {
   if (room) return { mode: "online", roomCode: room.toUpperCase() };
   if (modeParam === "local") return { mode: "local", roomCode: "" };
   if (modeParam === "online") return { mode: "online", roomCode: "" };
+  if (modeParam === "leaderboard") return { mode: "leaderboard", roomCode: "" };
   return { mode: null, roomCode: "" };
 }
 
@@ -71,17 +73,19 @@ export default function App() {
         onBack={goBack}
         roomCode={roomCode}
         onRoomChange={(code) => navigate({ mode: "online", roomCode: code })}
+        onOpenLeaderboard={() => navigate({ mode: "leaderboard", roomCode: "" })}
       />
     );
   if (mode === "local") return <Game onBack={goBack} />;
+  if (mode === "leaderboard") return <Leaderboard onBack={goBack} />;
 
   return (
     <div className="game-wrapper mode-screen">
       <SideRays
         className="side-rays-bg"
         speed={1.4}
-        rayColor1="#00f0ff"
-        rayColor2="#ff00e5"
+        rayColor1="#4de082"
+        rayColor2="#8bd6b4"
         intensity={1.8}
         spread={2.6}
         origin="top-right"
@@ -108,19 +112,44 @@ export default function App() {
             <div className="mode-actions">
               <button
                 type="button"
-                className="mode-button btn-plain"
+                className="mode-card"
                 onClick={() => navigate({ mode: "local", roomCode: "" })}
               >
-                Main Lokal
+                <span className="mode-card-icon" aria-hidden="true">
+                  👥
+                </span>
+                <span className="mode-card-text">
+                  <span className="mode-card-title">Main Lokal</span>
+                  <span className="mode-card-desc">
+                    Satu layar, dua pemain
+                  </span>
+                </span>
               </button>
               <button
                 type="button"
-                className="mode-button glow-button"
+                className="mode-card mode-card-primary"
                 onClick={() => navigate({ mode: "online", roomCode: "" })}
               >
-                Main Online
+                <span className="mode-card-icon" aria-hidden="true">
+                  🌐
+                </span>
+                <span className="mode-card-text">
+                  <span className="mode-card-title">Main Online</span>
+                  <span className="mode-card-desc">Buat atau gabung room</span>
+                </span>
               </button>
             </div>
+            <button
+              type="button"
+              className="leaderboard-link-button"
+              onClick={() => navigate({ mode: "leaderboard", roomCode: "" })}
+            >
+              <span aria-hidden="true">🏆</span>
+              Lihat Leaderboard
+              <span className="leaderboard-link-arrow" aria-hidden="true">
+                →
+              </span>
+            </button>
           </div>
         </main>
       </div>

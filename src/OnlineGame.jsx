@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { Board, calculateWinner } from "./Game";
 import SideRays from "./components/SideRays";
+import { useAuth } from "./UserAuth";
 
 function ResultModal({ result, displayName, displaySymbol, onClose }) {
   let emoji = "🎉";
@@ -52,15 +53,6 @@ function ResultModal({ result, displayName, displaySymbol, onClose }) {
   );
 }
 
-function getClientId() {
-  let id = localStorage.getItem("ttt-client-id");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("ttt-client-id", id);
-  }
-  return id;
-}
-
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -73,7 +65,15 @@ export default function OnlineGame({
   onBack = () => {},
   roomCode,
   onRoomChange,
+  onOpenLeaderboard = () => {},
 }) {
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    signIn,
+    signOut,
+  } = useAuth();
   const [joinInput, setJoinInput] = useState("");
   const [game, setGame] = useState(null);
   const [mySymbol, setMySymbol] = useState(null);
@@ -81,8 +81,8 @@ export default function OnlineGame({
   const [showModal, setShowModal] = useState(false);
   const [viewMove, setViewMove] = useState(0);
   const isFollowingLatestRef = useRef(true);
-  const clientId = useRef(getClientId());
   const prevGameOverRef = useRef(false);
+  const autoJoinAttemptedRef = useRef(false);
   const clickSoundRef = useRef(null);
   const victorySoundRef = useRef(null);
   const drawSoundRef = useRef(null);
@@ -104,6 +104,7 @@ export default function OnlineGame({
       setViewMove(0);
       isFollowingLatestRef.current = true;
       prevGameOverRef.current = false;
+      autoJoinAttemptedRef.current = false;
       return;
     }
     const unsub = onSnapshot(
@@ -119,8 +120,8 @@ export default function OnlineGame({
         const history = data.history || [{ squares: data.squares }];
         setGame({ ...data, history });
         setError("");
-        if (data.players?.X === clientId.current) setMySymbol("X");
-        else if (data.players?.O === clientId.current) setMySymbol("O");
+        if (data.players?.X === user?.uid) setMySymbol("X");
+        else if (data.players?.O === user?.uid) setMySymbol("O");
         else setMySymbol("spectator");
 
         // Kalau baru saja main lagi (restart), atau kita memang lagi
@@ -136,7 +137,7 @@ export default function OnlineGame({
       () => setError("Gagal terhubung ke room."),
     );
     return () => unsub();
-  }, [roomCode]);
+  }, [roomCode, user]);
 
   useEffect(() => {
     if (!game) return;
@@ -153,10 +154,24 @@ export default function OnlineGame({
       } else if (winner && mySymbol !== "spectator") {
         loseSoundRef.current?.play().catch(() => {});
       }
+      if (roomCode) recordStatsOnce(roomCode);
       setTimeout(() => setShowModal(true), 600);
     }
     prevGameOverRef.current = gameOver;
-  }, [game, mySymbol]);
+  }, [game, mySymbol, roomCode]);
+
+  // Kalau orang buka link undangan langsung (bukan lewat form "Gabung
+  // Room"), dia belum terdaftar di `players` — auto-join-kan sekali,
+  // selama masih ada slot X/O kosong. Kalau room sudah penuh, biarkan saja
+  // (nanti ditangani sebagai "Room Penuh" di bagian render).
+  useEffect(() => {
+    if (!user || !game || autoJoinAttemptedRef.current) return;
+    if (mySymbol !== "spectator") return;
+    const hasOpenSlot = !game.players?.X || !game.players?.O;
+    if (!hasOpenSlot) return;
+    autoJoinAttemptedRef.current = true;
+    joinRoom(roomCode);
+  }, [user, game, mySymbol, roomCode]);
 
   async function createRoom() {
     const code = generateRoomCode();
@@ -165,9 +180,10 @@ export default function OnlineGame({
         squares: Array(9).fill(null),
         history: [{ squares: Array(9).fill(null) }],
         xIsNext: true,
-        playerXName: "Pemain X",
+        playerXName: user.displayName || "Pemain X",
         playerOName: "Pemain O",
-        players: { X: clientId.current, O: null },
+        players: { X: user.uid, O: null },
+        statsRecorded: false,
         createdAt: serverTimestamp(),
       });
     });
@@ -182,15 +198,30 @@ export default function OnlineGame({
         const ref = doc(db, "games", upperCode);
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("Room tidak ditemukan.");
-        const players = snap.data().players || { X: null, O: null };
-        if (players.X === clientId.current || players.O === clientId.current)
-          return;
-        if (!players.X) tx.update(ref, { "players.X": clientId.current });
-        else if (!players.O) tx.update(ref, { "players.O": clientId.current });
+        const data = snap.data();
+        const players = data.players || { X: null, O: null };
+        if (players.X === user.uid || players.O === user.uid) return;
+        if (!players.X) {
+          tx.update(ref, {
+            "players.X": user.uid,
+            playerXName: user.displayName || "Pemain X",
+          });
+        } else if (!players.O) {
+          tx.update(ref, {
+            "players.O": user.uid,
+            playerOName: user.displayName || "Pemain O",
+          });
+        } else {
+          throw new Error("ROOM_FULL");
+        }
       });
-      onRoomChange(upperCode);
+      if (upperCode !== roomCode) onRoomChange(upperCode);
     } catch (e) {
-      setError(e.message || "Gagal join room.");
+      if (e.message === "ROOM_FULL") {
+        setError("Room sudah penuh (maksimal 2 pemain).");
+      } else {
+        setError(e.message || "Gagal join room.");
+      }
     }
   }
 
@@ -216,6 +247,78 @@ export default function OnlineGame({
     await updateDoc(doc(db, "games", roomCode), { [field]: name });
   }
 
+  // Mencatat hasil game ke koleksi "leaderboard", sekali per game selesai.
+  // Dipanggil dari KEDUA klien (X maupun O) begitu game berakhir, tapi
+  // transaction + flag `statsRecorded` menjamin cuma salah satu yang
+  // berhasil menulis — mencegah kemenangan/kekalahan tercatat dobel.
+  async function recordStatsOnce(code) {
+    const gameRef = doc(db, "games", code);
+    try {
+      await runTransaction(db, async (tx) => {
+        const gameSnap = await tx.get(gameRef);
+        if (!gameSnap.exists()) return;
+        const data = gameSnap.data();
+        if (data.statsRecorded) return;
+
+        const winnerInfo = calculateWinner(data.squares);
+        const winnerSymbol = winnerInfo ? winnerInfo.winner : null;
+        const isDrawResult = !winnerSymbol && data.squares.every(Boolean);
+        if (!winnerSymbol && !isDrawResult) return;
+
+        const xUid = data.players?.X;
+        const oUid = data.players?.O;
+        const xRef = xUid ? doc(db, "leaderboard", xUid) : null;
+        const oRef = oUid ? doc(db, "leaderboard", oUid) : null;
+
+        // Semua read WAJIB dilakukan sebelum write di dalam transaction.
+        const xSnap = xRef ? await tx.get(xRef) : null;
+        const oSnap = oRef ? await tx.get(oRef) : null;
+
+        function nextStats(snap, name, outcome) {
+          const cur =
+            snap && snap.exists()
+              ? snap.data()
+              : { wins: 0, losses: 0, draws: 0, gamesPlayed: 0 };
+          return {
+            displayName: name || cur.displayName || "Tanpa Nama",
+            wins: (cur.wins || 0) + (outcome === "win" ? 1 : 0),
+            losses: (cur.losses || 0) + (outcome === "loss" ? 1 : 0),
+            draws: (cur.draws || 0) + (outcome === "draw" ? 1 : 0),
+            gamesPlayed: (cur.gamesPlayed || 0) + 1,
+            updatedAt: serverTimestamp(),
+          };
+        }
+
+        if (isDrawResult) {
+          if (xRef)
+            tx.set(xRef, nextStats(xSnap, data.playerXName, "draw"), {
+              merge: true,
+            });
+          if (oRef)
+            tx.set(oRef, nextStats(oSnap, data.playerOName, "draw"), {
+              merge: true,
+            });
+        } else {
+          const xOutcome = winnerSymbol === "X" ? "win" : "loss";
+          const oOutcome = winnerSymbol === "O" ? "win" : "loss";
+          if (xRef)
+            tx.set(xRef, nextStats(xSnap, data.playerXName, xOutcome), {
+              merge: true,
+            });
+          if (oRef)
+            tx.set(oRef, nextStats(oSnap, data.playerOName, oOutcome), {
+              merge: true,
+            });
+        }
+
+        tx.update(gameRef, { statsRecorded: true });
+      });
+    } catch {
+      // Kalau gagal (misal ada race condition kecil), abaikan saja — gak
+      // fatal, cuma berarti statistik ronde ini gak tercatat.
+    }
+  }
+
   async function restartGame() {
     isFollowingLatestRef.current = true;
     prevGameOverRef.current = false;
@@ -233,6 +336,7 @@ export default function OnlineGame({
       players: swappedPlayers,
       playerXName: game.playerOName,
       playerOName: game.playerXName,
+      statsRecorded: false,
     });
     setShowModal(false);
   }
@@ -247,19 +351,40 @@ export default function OnlineGame({
     setViewMove(game.history.length - 1);
   }
 
-  function copyInviteLink() {
-    const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-    navigator.clipboard.writeText(url).catch(() => {});
-  }
-
-  if (!roomCode) {
+  if (authLoading) {
     return (
       <div className="game-wrapper mode-screen">
         <SideRays
           className="side-rays-bg"
           speed={1.4}
-          rayColor1="#00f0ff"
-          rayColor2="#ff00e5"
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
+          intensity={1.8}
+          spread={2.6}
+          origin="top-right"
+          tilt={6}
+          saturation={1.5}
+          blend={0.65}
+          falloff={1.3}
+          opacity={0.8}
+        />
+        <div className="game-container">
+          <main className="game-main menu-main">
+            <p className="mode-description">Memeriksa status login...</p>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="game-wrapper mode-screen">
+        <SideRays
+          className="side-rays-bg"
+          speed={1.4}
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
           intensity={1.8}
           spread={2.6}
           origin="top-right"
@@ -271,6 +396,12 @@ export default function OnlineGame({
         />
 
         <div className="game-container">
+          <div className="page-header game-page-header">
+            <button type="button" className="back-button" onClick={onBack}>
+              ← Kembali
+            </button>
+          </div>
+
           <header className="game-header">
             <h1 className="game-title">TIC TAC TOE</h1>
             <p className="game-subtitle">Main Online</p>
@@ -278,6 +409,71 @@ export default function OnlineGame({
 
           <main className="game-main menu-main">
             <div className="glass-panel mode-panel">
+              <p className="mode-eyebrow">Masuk dulu yuk</p>
+              <p className="mode-description">
+                Main online butuh login dengan Google — biar kemenangan kamu
+                tercatat di leaderboard dan aman gak ketuker sama pemain lain.
+              </p>
+              <button
+                type="button"
+                className="mode-button glow-button"
+                onClick={signIn}
+              >
+                Masuk dengan Google
+              </button>
+              {authError && <p className="error-text">{authError}</p>}
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!roomCode) {
+    return (
+      <div className="game-wrapper mode-screen">
+        <SideRays
+          className="side-rays-bg"
+          speed={1.4}
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
+          intensity={1.8}
+          spread={2.6}
+          origin="top-right"
+          tilt={6}
+          saturation={1.5}
+          blend={0.65}
+          falloff={1.3}
+          opacity={0.8}
+        />
+
+        <div className="game-container">
+          <div className="page-header game-page-header">
+            <button type="button" className="back-button" onClick={onBack}>
+              ← Kembali
+            </button>
+          </div>
+
+          <header className="game-header">
+            <h1 className="game-title">TIC TAC TOE</h1>
+            <p className="game-subtitle">Main Online</p>
+          </header>
+
+          <main className="game-main menu-main">
+            <div className="glass-panel mode-panel">
+              <div className="account-bar">
+                <span className="account-name">
+                  Masuk sebagai <strong>{user.displayName}</strong>
+                </span>
+                <button
+                  type="button"
+                  className="account-signout"
+                  onClick={signOut}
+                >
+                  Keluar Akun
+                </button>
+              </div>
+
               <p className="mode-eyebrow">Mode online</p>
               <p className="mode-description">
                 Buat room baru atau masukkan kode untuk bermain bersama teman.
@@ -305,6 +501,13 @@ export default function OnlineGame({
                   Gabung Room
                 </button>
               </div>
+              <button
+                type="button"
+                className="action-button secondary leaderboard-link-button"
+                onClick={onOpenLeaderboard}
+              >
+                🏆 Lihat Leaderboard
+              </button>
               {error && <p className="error-text">{error}</p>}
             </div>
           </main>
@@ -323,7 +526,62 @@ export default function OnlineGame({
   const winnerInfo = calculateWinner(game.squares);
   const winner = winnerInfo ? winnerInfo.winner : null;
   const isDraw = !winner && game.squares.every(Boolean);
+  const bothPlayersPresent =
+    Boolean(game.players?.X) && Boolean(game.players?.O);
+
+  // Room sudah penuh dan kamu bukan salah satu dari 2 pemainnya (misal buka
+  // link undangan setelah slotnya keburu terisi orang lain) — jangan
+  // tampilkan papan permainan sama sekali.
+  if (bothPlayersPresent && mySymbol === "spectator") {
+    return (
+      <div className="game-wrapper mode-screen">
+        <SideRays
+          className="side-rays-bg"
+          speed={1.4}
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
+          intensity={1.8}
+          spread={2.6}
+          origin="top-right"
+          tilt={6}
+          saturation={1.5}
+          blend={0.65}
+          falloff={1.3}
+          opacity={0.8}
+        />
+        <div className="game-container">
+          <div className="page-header game-page-header">
+            <button type="button" className="back-button" onClick={onBack}>
+              ← Kembali
+            </button>
+          </div>
+          <header className="game-header">
+            <h1 className="game-title">TIC TAC TOE</h1>
+            <p className="game-subtitle">Main Online</p>
+          </header>
+          <main className="game-main menu-main">
+            <div className="glass-panel mode-panel">
+              <p className="mode-eyebrow">Room {roomCode}</p>
+              <p className="mode-description">
+                🚫 Room ini sudah penuh (maksimal 2 pemain). Coba minta teman
+                kamu buat room baru, atau gabung ke room lain.
+              </p>
+              <button
+                type="button"
+                className="mode-button glow-button"
+                onClick={onBack}
+              >
+                Kembali ke Menu
+              </button>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   const isMyTurn =
+    bothPlayersPresent &&
     !winner &&
     !isDraw &&
     ((game.xIsNext && mySymbol === "X") || (!game.xIsNext && mySymbol === "O"));
@@ -374,22 +632,28 @@ export default function OnlineGame({
         />
       )}
 
-      <SideRays
-        className="side-rays-bg"
-        speed={1.5}
-        rayColor1="#00f0ff"
-        rayColor2="#ff00e5"
-        intensity={1.8}
-        spread={2.5}
-        origin="top-right"
-        tilt={5}
-        saturation={1.6}
-        blend={0.65}
-        falloff={1.4}
-        opacity={0.8}
+        <SideRays
+          className="side-rays-bg"
+          speed={1.4}
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
+          intensity={1.8}
+          spread={2.6}
+          origin="top-right"
+          tilt={6}
+          saturation={1.5}
+          blend={0.65}
+          falloff={1.3}
+          opacity={0.8}
       />
 
       <div className="game-container">
+        <div className="page-header game-page-header">
+          <button type="button" className="back-button" onClick={onBack}>
+            ← Kembali
+          </button>
+        </div>
+
         <header className="game-header">
           <h1 className="game-title">TIC TAC TOE</h1>
           <p className="game-subtitle">
@@ -437,44 +701,65 @@ export default function OnlineGame({
               <div className="player-avatar">O</div>
               <div className="player-details">
                 <span className="player-label">Pemain O</span>
-                <div className="player-name-row">
-                  <input
-                    className="player-name-input"
-                    value={game.playerOName}
-                    disabled={mySymbol !== "O"}
-                    onChange={(e) => updateName("O", e.target.value)}
-                    placeholder="Ketik nama di sini"
-                    maxLength={12}
-                  />
-                  {mySymbol === "O" && (
-                    <span className="name-edit-icon" aria-hidden="true">
-                      ✎
-                    </span>
-                  )}
-                </div>
+                {game.players?.O ? (
+                  <div className="player-name-row">
+                    <input
+                      className="player-name-input"
+                      value={game.playerOName}
+                      disabled={mySymbol !== "O"}
+                      onChange={(e) => updateName("O", e.target.value)}
+                      placeholder="Ketik nama di sini"
+                      maxLength={12}
+                    />
+                    {mySymbol === "O" && (
+                      <span className="name-edit-icon" aria-hidden="true">
+                        ✎
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="waiting-slot-text">Menunggu pemain...</span>
+                )}
               </div>
             </div>
           </div>
 
           <div className="game-layout">
             <div className="board-section">
-              <Board
-                xIsNext={game.xIsNext}
-                squares={displayedSquares}
-                onPlay={handlePlay}
-                playerXName={game.playerXName}
-                playerOName={game.playerOName}
-                isReadOnly={!viewingLatest || !isMyTurn}
-                onSound={() => {}}
-              />
-              {!viewingLatest && (
-                <button
-                  type="button"
-                  className="action-button glow-button back-to-live-button"
-                  onClick={backToLatest}
-                >
-                  ↺ Kembali ke Langkah Terbaru
-                </button>
+              {!bothPlayersPresent ? (
+                <div className="board-container waiting-container">
+                  <div className="status-badge status-waiting">
+                    ⏳ Menunggu pemain kedua bergabung...
+                  </div>
+                  <div className="board waiting-board" aria-hidden="true">
+                    {Array(9)
+                      .fill(null)
+                      .map((_, i) => (
+                        <div key={i} className="square" />
+                      ))}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <Board
+                    xIsNext={game.xIsNext}
+                    squares={displayedSquares}
+                    onPlay={handlePlay}
+                    playerXName={game.playerXName}
+                    playerOName={game.playerOName}
+                    isReadOnly={!viewingLatest || !isMyTurn}
+                    onSound={() => {}}
+                  />
+                  {!viewingLatest && (
+                    <button
+                      type="button"
+                      className="action-button glow-button back-to-live-button"
+                      onClick={backToLatest}
+                    >
+                      ↺ Kembali ke Langkah Terbaru
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
@@ -489,14 +774,7 @@ export default function OnlineGame({
                 <div className="room-actions">
                   <button
                     type="button"
-                    className="action-button glow-button"
-                    onClick={copyInviteLink}
-                  >
-                    Salin Link
-                  </button>
-                  <button
-                    type="button"
-                    className="action-button btn-ghost-secondary"
+                    className="action-button secondary"
                     onClick={onBack}
                   >
                     Keluar Room

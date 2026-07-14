@@ -46,8 +46,8 @@ const prefersReducedMotion = () =>
 
 const SideRays = ({
   speed = 2.5,
-  rayColor1 = '#EAB308',
-  rayColor2 = '#96c8ff',
+  rayColor1 = '#4ade80',
+  rayColor2 = '#8bd6b4',
   intensity = 2,
   spread = 2,
   origin = 'top-right',

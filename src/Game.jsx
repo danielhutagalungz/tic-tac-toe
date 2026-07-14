@@ -287,8 +287,8 @@ export default function Game({ onBack = () => {} }) {
       <SideRays
         className="side-rays-bg"
         speed={1.5}
-        rayColor1="#00f0ff"
-        rayColor2="#ff00e5"
+        rayColor1="#4de082"
+        rayColor2="#8bd6b4"
         intensity={1.8}
         spread={2.5}
         origin="top-right"
