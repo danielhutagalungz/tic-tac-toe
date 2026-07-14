@@ -22,7 +22,7 @@ export function useAuth() {
   async function signIn() {
     setError("");
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     } catch (e) {
       setError("Gagal masuk. Coba lagi ya.");
     }
