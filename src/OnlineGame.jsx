@@ -154,7 +154,7 @@ export default function OnlineGame({
       } else if (winner && mySymbol !== "spectator") {
         loseSoundRef.current?.play().catch(() => {});
       }
-      if (roomCode) recordStatsOnce(roomCode);
+      if (roomCode) recordMyStatsOnce(roomCode);
       setTimeout(() => setShowModal(true), 600);
     }
     prevGameOverRef.current = gameOver;
@@ -183,7 +183,8 @@ export default function OnlineGame({
         playerXName: user.displayName || "Pemain X",
         playerOName: "Pemain O",
         players: { X: user.uid, O: null },
-        statsRecorded: false,
+        xStatsRecorded: false,
+        oStatsRecorded: false,
         createdAt: serverTimestamp(),
       });
     });
@@ -251,71 +252,62 @@ export default function OnlineGame({
   // Dipanggil dari KEDUA klien (X maupun O) begitu game berakhir, tapi
   // transaction + flag `statsRecorded` menjamin cuma salah satu yang
   // berhasil menulis — mencegah kemenangan/kekalahan tercatat dobel.
-  async function recordStatsOnce(code) {
+  // Mencatat hasil SATU pemain saja (diri sendiri) ke koleksi "leaderboard".
+  // Dipanggil independen oleh klien X dan klien O — masing-masing HANYA
+  // menulis dokumen leaderboard miliknya sendiri (aman untuk security rule
+  // "request.auth.uid == uid"). Flag per-simbol di dokumen room ("games")
+  // mencegah satu klien mencatat hasil yang sama dua kali (misal karena
+  // reconnect/refresh).
+  async function recordMyStatsOnce(code) {
+    if (!user || (mySymbol !== "X" && mySymbol !== "O")) return;
     const gameRef = doc(db, "games", code);
+    const myFlagField = mySymbol === "X" ? "xStatsRecorded" : "oStatsRecorded";
+    const myLeaderboardRef = doc(db, "leaderboard", user.uid);
+
     try {
       await runTransaction(db, async (tx) => {
         const gameSnap = await tx.get(gameRef);
         if (!gameSnap.exists()) return;
         const data = gameSnap.data();
-        if (data.statsRecorded) return;
+        if (data[myFlagField]) return; // sudah pernah dicatat untuk ronde ini
 
         const winnerInfo = calculateWinner(data.squares);
         const winnerSymbol = winnerInfo ? winnerInfo.winner : null;
         const isDrawResult = !winnerSymbol && data.squares.every(Boolean);
         if (!winnerSymbol && !isDrawResult) return;
 
-        const xUid = data.players?.X;
-        const oUid = data.players?.O;
-        const xRef = xUid ? doc(db, "leaderboard", xUid) : null;
-        const oRef = oUid ? doc(db, "leaderboard", oUid) : null;
+        const myOutcome = isDrawResult
+          ? "draw"
+          : winnerSymbol === mySymbol
+            ? "win"
+            : "loss";
+        const myName = mySymbol === "X" ? data.playerXName : data.playerOName;
 
-        // Semua read WAJIB dilakukan sebelum write di dalam transaction.
-        const xSnap = xRef ? await tx.get(xRef) : null;
-        const oSnap = oRef ? await tx.get(oRef) : null;
+        // Read WAJIB sebelum write di dalam transaction.
+        const myLbSnap = await tx.get(myLeaderboardRef);
+        const cur =
+          myLbSnap && myLbSnap.exists()
+            ? myLbSnap.data()
+            : { wins: 0, losses: 0, draws: 0, gamesPlayed: 0 };
 
-        function nextStats(snap, name, outcome) {
-          const cur =
-            snap && snap.exists()
-              ? snap.data()
-              : { wins: 0, losses: 0, draws: 0, gamesPlayed: 0 };
-          return {
-            displayName: name || cur.displayName || "Tanpa Nama",
-            wins: (cur.wins || 0) + (outcome === "win" ? 1 : 0),
-            losses: (cur.losses || 0) + (outcome === "loss" ? 1 : 0),
-            draws: (cur.draws || 0) + (outcome === "draw" ? 1 : 0),
+        tx.set(
+          myLeaderboardRef,
+          {
+            displayName: myName || cur.displayName || "Tanpa Nama",
+            wins: (cur.wins || 0) + (myOutcome === "win" ? 1 : 0),
+            losses: (cur.losses || 0) + (myOutcome === "loss" ? 1 : 0),
+            draws: (cur.draws || 0) + (myOutcome === "draw" ? 1 : 0),
             gamesPlayed: (cur.gamesPlayed || 0) + 1,
             updatedAt: serverTimestamp(),
-          };
-        }
+          },
+          { merge: true },
+        );
 
-        if (isDrawResult) {
-          if (xRef)
-            tx.set(xRef, nextStats(xSnap, data.playerXName, "draw"), {
-              merge: true,
-            });
-          if (oRef)
-            tx.set(oRef, nextStats(oSnap, data.playerOName, "draw"), {
-              merge: true,
-            });
-        } else {
-          const xOutcome = winnerSymbol === "X" ? "win" : "loss";
-          const oOutcome = winnerSymbol === "O" ? "win" : "loss";
-          if (xRef)
-            tx.set(xRef, nextStats(xSnap, data.playerXName, xOutcome), {
-              merge: true,
-            });
-          if (oRef)
-            tx.set(oRef, nextStats(oSnap, data.playerOName, oOutcome), {
-              merge: true,
-            });
-        }
-
-        tx.update(gameRef, { statsRecorded: true });
+        tx.update(gameRef, { [myFlagField]: true });
       });
     } catch {
-      // Kalau gagal (misal ada race condition kecil), abaikan saja — gak
-      // fatal, cuma berarti statistik ronde ini gak tercatat.
+      // Gagal (race condition kecil dll) — gak fatal, statistik ronde ini
+      // aja yang gak tercatat.
     }
   }
 
@@ -336,7 +328,8 @@ export default function OnlineGame({
       players: swappedPlayers,
       playerXName: game.playerOName,
       playerOName: game.playerXName,
-      statsRecorded: false,
+      xStatsRecorded: false,
+      oStatsRecorded: false,
     });
     setShowModal(false);
   }
@@ -349,6 +342,11 @@ export default function OnlineGame({
   function backToLatest() {
     isFollowingLatestRef.current = true;
     setViewMove(game.history.length - 1);
+  }
+
+  function copyInviteLink() {
+    const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+    navigator.clipboard.writeText(url).catch(() => {});
   }
 
   if (authLoading) {
@@ -383,8 +381,8 @@ export default function OnlineGame({
         <SideRays
           className="side-rays-bg"
           speed={1.4}
-          rayColor1="#4de082"
-          rayColor2="#8bd6b4"
+          rayColor1="#00f2fe"
+          rayColor2="#ec4899"
           intensity={1.8}
           spread={2.6}
           origin="top-right"
@@ -632,19 +630,19 @@ export default function OnlineGame({
         />
       )}
 
-        <SideRays
-          className="side-rays-bg"
-          speed={1.4}
-          rayColor1="#4de082"
-          rayColor2="#8bd6b4"
-          intensity={1.8}
-          spread={2.6}
-          origin="top-right"
-          tilt={6}
-          saturation={1.5}
-          blend={0.65}
-          falloff={1.3}
-          opacity={0.8}
+      <SideRays
+        className="side-rays-bg"
+        speed={1.4}
+        rayColor1="#4de082"
+        rayColor2="#8bd6b4"
+        intensity={1.8}
+        spread={2.6}
+        origin="top-right"
+        tilt={6}
+        saturation={1.5}
+        blend={0.65}
+        falloff={1.3}
+        opacity={0.8}
       />
 
       <div className="game-container">
@@ -772,6 +770,13 @@ export default function OnlineGame({
                 </div>
 
                 <div className="room-actions">
+                  <button
+                    type="button"
+                    className="action-button glow-button"
+                    onClick={copyInviteLink}
+                  >
+                    Salin Link
+                  </button>
                   <button
                     type="button"
                     className="action-button secondary"
