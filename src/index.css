@@ -165,6 +165,7 @@ body {
     0 0 30px var(--color-x-glow),
     0 0 24px var(--color-o-glow);
   margin-bottom: 2px;
+  margin-top: -9vh;
 }
 
 .game-subtitle {
@@ -585,12 +586,15 @@ body {
   cursor: default;
 }
 
+
+
 /* Glass panel components */
 .glass-panel {
   background: rgba(21, 29, 23, 0.72);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
   border: 1px solid var(--panel-border);
+  padding: 16px;
   border-radius: 1rem;
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.22),
