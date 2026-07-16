@@ -431,4 +431,4 @@ function calculateWinner(squares) {
   return null;
 }
 
-export { Board, WinModal, calculateWinner };
+export { Board, WinModal, calculateWinner, SymbolX, SymbolO };

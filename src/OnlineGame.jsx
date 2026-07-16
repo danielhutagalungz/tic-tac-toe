@@ -381,8 +381,8 @@ export default function OnlineGame({
         <SideRays
           className="side-rays-bg"
           speed={1.4}
-          rayColor1="#00f2fe"
-          rayColor2="#ec4899"
+          rayColor1="#4de082"
+          rayColor2="#8bd6b4"
           intensity={1.8}
           spread={2.6}
           origin="top-right"
@@ -395,7 +395,11 @@ export default function OnlineGame({
 
         <div className="game-container">
           <div className="page-header game-page-header">
-            <button type="button" className="back-button" onClick={onBack}>
+            <button
+              type="button"
+              className="back-button back-button-login"
+              onClick={onBack}
+            >
               ← Kembali
             </button>
           </div>
@@ -447,7 +451,7 @@ export default function OnlineGame({
 
         <div className="game-container">
           <div className="page-header game-page-header">
-            <button type="button" className="back-button" onClick={onBack}>
+            <button type="button" className="back-button back-button-online" onClick={onBack}>
               ← Kembali
             </button>
           </div>
@@ -549,7 +553,7 @@ export default function OnlineGame({
         />
         <div className="game-container">
           <div className="page-header game-page-header">
-            <button type="button" className="back-button" onClick={onBack}>
+            <button type="button" className="back-button-online" onClick={onBack}>
               ← Kembali
             </button>
           </div>

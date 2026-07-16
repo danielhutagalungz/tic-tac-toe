@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Game from "./Game";
 import OnlineGame from "./OnlineGame";
 import Leaderboard from "./Leaderboard";
+import UltimateGame from "./UltimateGame";
 import SideRays from "./components/SideRays";
 
 // Membaca mode & roomCode dari URL saat ini — dipakai sebagai "sumber
@@ -15,6 +16,7 @@ function readNavStateFromUrl() {
   if (modeParam === "local") return { mode: "local", roomCode: "" };
   if (modeParam === "online") return { mode: "online", roomCode: "" };
   if (modeParam === "leaderboard") return { mode: "leaderboard", roomCode: "" };
+  if (modeParam === "ultimate") return { mode: "ultimate", roomCode: "" };
   return { mode: null, roomCode: "" };
 }
 
@@ -78,6 +80,7 @@ export default function App() {
     );
   if (mode === "local") return <Game onBack={goBack} />;
   if (mode === "leaderboard") return <Leaderboard onBack={goBack} />;
+  if (mode === "ultimate") return <UltimateGame onBack={goBack} />;
 
   return (
     <div className="game-wrapper mode-screen">
@@ -136,6 +139,21 @@ export default function App() {
                 <span className="mode-card-text">
                   <span className="mode-card-title">Main Online</span>
                   <span className="mode-card-desc">Buat atau gabung room</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="mode-card"
+                onClick={() => navigate({ mode: "ultimate", roomCode: "" })}
+              >
+                <span className="mode-card-icon" aria-hidden="true">
+                  🧩
+                </span>
+                <span className="mode-card-text">
+                  <span className="mode-card-title">Ultimate Tic Tac Toe (DEMO)</span>
+                  <span className="mode-card-desc">
+                    9 papan sekaligus, satu layar
+                  </span>
                 </span>
               </button>
             </div>
